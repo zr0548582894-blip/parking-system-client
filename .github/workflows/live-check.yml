@@ -1,0 +1,125 @@
+# בדיקת זמינות והגדרות CORS של הפריסה ב-Render. מצב קריאה בלבד, מופעלת ידנית בלבד
+# (Actions > Live check > Run workflow). רצה על שרתי GitHub, מחוץ לרשת המקומית, ולכן עובדת
+# גם כשהדומיין onrender.com חסום ברשת המקומית.
+#
+# אין כאן סודות והאתר לא נטען מהמאגר: כל הבדיקות הן בקשות HTTP לכתובות ציבוריות.
+# שום בדיקה לא יוצרת משתמש, הזמנה או נתון אחר: רק GET, OPTIONS, ושתי בקשות POST שנדחות לפני כל כתיבה
+# (גוף ריק -> 400 מבדיקת ה-ModelState, ומשתמש שלא קיים -> 401 אחרי חיפוש בלבד).
+name: Live check (read-only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: "API base URL, https://<name>.onrender.com (no trailing slash)"
+        required: true
+        default: "https://parking-system-api-j020.onrender.com"
+      client_origin:
+        description: "Client origin, https://<name>.onrender.com (no trailing slash)"
+        required: true
+        default: "https://parking-system-client-ijof.onrender.com"
+
+permissions: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      API_URL: ${{ inputs.api_url }}
+      CLIENT_ORIGIN: ${{ inputs.client_origin }}
+    steps:
+      - name: Validate the inputs
+        run: |
+          # רק כתובות https בדומיין onrender.com, ללא נתיב, פורט, משתמש או / בסוף,
+          # כדי שה-Workflow לא ישלח בקשות לכתובות לא צפויות. הקלט עצמו לא מודפס ללוג
+          pattern='^https://[a-z0-9]([a-z0-9-]*[a-z0-9])?\.onrender\.com$'
+          for name in API_URL CLIENT_ORIGIN; do
+            value="${!name}"
+            if [[ ! "$value" =~ $pattern ]]; then
+              echo "::error::$name must look like https://<name>.onrender.com (no path, port or trailing slash)"
+              exit 1
+            fi
+          done
+          echo "Inputs are valid onrender.com origins"
+
+      - name: Wake the API up and wait for /healthz
+        run: |
+          # השירות החינמי נרדם אחרי 15 דקות, והבקשה הראשונה יכולה להימשך כדקה
+          for i in $(seq 1 18); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 "$API_URL/healthz" || true)
+            echo "attempt $i: $code"
+            if [ "$code" = "200" ]; then exit 0; fi
+            sleep 10
+          done
+          echo "The API did not become healthy in time"
+          exit 1
+
+      - name: Read-only checks (no data is written)
+        run: |
+          fail=0
+          check() { if [ "$2" = "$3" ]; then echo "PASS  $1"; else echo "FAIL  $1 (expected '$2', got '$3')"; fail=1; fi; }
+          # שגיאת רשת נותנת 000, ולכן היא נכשלת בכל בדיקה שמצפה לקוד אחר
+          status() { curl -s -o /dev/null -w '%{http_code}' --max-time 60 "$@" || true; }
+
+          # בקשת preflight בדיוק כמו שהדפדפן שולח לפני POST עם Authorization
+          preflight() {
+            curl -s -D - -o /dev/null -X OPTIONS --max-time 60 \
+              -H "Origin: $1" -H 'Access-Control-Request-Method: POST' \
+              -H 'Access-Control-Request-Headers: authorization,content-type' \
+              "$API_URL/api/reservations" | tr -d '\r' || true
+          }
+          # קוד הסטטוס של שורת התגובה הראשונה, וערך כותרת לפי שם (באותיות קטנות)
+          preflight_code() { printf '%s\n' "$1" | awk 'NR==1{print $2}'; }
+          preflight_header() { printf '%s\n' "$1" | awk -F': ' -v h="$2" 'tolower($1)==h{print $2}'; }
+
+          check "healthz returns 200"                    200 "$(status "$API_URL/healthz")"
+          check "swagger.json is published"              200 "$(status "$API_URL/swagger/v1/swagger.json")"
+          check "no token on /api/parking-spots -> 401"  401 "$(status "$API_URL/api/parking-spots")"
+          check "empty login body -> 400"                400 "$(status -X POST -H 'Content-Type: application/json' -d '{}' "$API_URL/api/tokens")"
+          check "unknown user login -> 401"              401 "$(status -X POST -H 'Content-Type: application/json' -d '{"email":"nobody@example.com","password":"not-a-real-password"}' "$API_URL/api/tokens")"
+
+          # אותה תשובה נבדקת גם לפי הקוד וגם לפי סוג התוכן
+          unauth=$(curl -s -o /dev/null -w '%{http_code} %{content_type}' --max-time 60 "$API_URL/api/features" || true)
+          unauth_code="${unauth%% *}"
+          unauth_type="${unauth#* }"; unauth_type="${unauth_type%%;*}"
+          check "no token on /api/features -> 401"       401 "$unauth_code"
+          check "401 body is application/problem+json"   "application/problem+json" "$unauth_type"
+
+          allowed=$(preflight "$CLIENT_ORIGIN")
+          check "CORS preflight status is 204"           204 "$(preflight_code "$allowed")"
+          check "CORS allows the client origin"          "$CLIENT_ORIGIN" "$(preflight_header "$allowed" access-control-allow-origin)"
+
+          # POST צריך להופיע ברשימת השיטות (ייתכנו כמה שיטות מופרדות בפסיק, או *)
+          in_list() { case ",$1," in *",$2,"*) return 0 ;; esac; return 1; }
+
+          methods=$(preflight_header "$allowed" access-control-allow-methods | tr -d ' ' | tr 'a-z' 'A-Z')
+          if in_list "$methods" POST || in_list "$methods" '*'; then m=ok; else m="$methods"; fi
+          check "CORS allows the POST method"            ok "$m"
+
+          allow_headers=$(preflight_header "$allowed" access-control-allow-headers | tr -d ' ' | tr 'A-Z' 'a-z')
+          if in_list "$allow_headers" '*' || { in_list "$allow_headers" authorization && in_list "$allow_headers" content-type; }; then
+            h=ok
+          else
+            h="$allow_headers"
+          fi
+          check "CORS allows the Authorization and Content-Type headers" ok "$h"
+
+          # גם כאן נדרשת תשובת preflight אמיתית, אחרת שגיאת רשת הייתה נראית כמו "נדחה"
+          foreign=$(preflight "https://evil.example.com")
+          check "foreign origin preflight is answered (204)" 204 "$(preflight_code "$foreign")"
+          check "CORS does not allow another website"    "" "$(preflight_header "$foreign" access-control-allow-origin)"
+
+          check "client site is reachable"               200 "$(status "$CLIENT_ORIGIN/")"
+
+          # הלקוח נבנה עם כתובת ה-API הנכונה: הערך VITE_API_URL נכנס לקובץ ה-JS בזמן הבנייה.
+          # ב-HTML ש-Vite מייצר יש תג אחד: <script type="module" crossorigin src="/assets/index-XXXX.js">
+          html=$(curl -s --max-time 60 "$CLIENT_ORIGIN/" || true)
+          js=$(printf '%s' "$html" | grep -o '<script[^>]* src="/assets/[^"]*\.js"' | head -1 | sed 's/.* src="//; s/"$//' || true)
+          if [ -n "$js" ] && curl -s --max-time 60 "$CLIENT_ORIGIN$js" | grep -qF "$API_URL"; then
+            echo "PASS  client bundle points to the API URL"
+          else
+            echo "FAIL  client bundle does not contain the API URL (script: '$js')"; fail=1
+          fi
+
+          exit $fail
