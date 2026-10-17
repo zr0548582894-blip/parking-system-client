@@ -77,7 +77,9 @@ check('page 2 returns different items than page 1', second.page === 2 && second.
 check('items carry availability for the requested date', first.items.every((spot) => typeof spot.isAvailable === 'boolean'));
 
 // 4. הזמנה (ה-Location מצביע על ההזמנה)
-const target = first.items[0];
+// בוחרים מקום שפנוי בפועל בתאריך הזה, כדי שהרצה חוזרת לא תתנגש בהזמנות של הרצות קודמות
+const freeOnDate = await alice.api.listSpots({ page: 1, pageSize: 50, date, available: true });
+const target = freeOnDate.items[0];
 const alicesReservation = await alice.api.reserve(target.id, date);
 check('reservation succeeds (201) and returns a Location', alicesReservation.reservation.id > 0 && Boolean(alicesReservation.location));
 
@@ -98,19 +100,24 @@ check('my reservations lists it with pagination data', mine.items.some((item) =>
 await alice.api.cancelReservation(alicesReservation.reservation.id);
 const afterCancel = await bob.api.reserve(target.id, date).catch((error) => error);
 check('after cancelling, the other user can take the spot', !(afterCancel instanceof Error) && afterCancel.reservation.id > 0);
+if (!(afterCancel instanceof Error)) await bob.api.cancelReservation(afterCancel.reservation.id); // ניקוי: ההזמנה נשמרת בהיסטוריה כמבוטלת
 
 // 7. כמה משתמשים בו-זמנית על אותו מקום: בדיוק אחד מצליח
 const racers = await Promise.all(Array.from({ length: PARALLEL_USERS }, (_, index) => newUser(`racer${index}`)));
-const raceSpot = first.items[1];
 const raceDate = isoDate(15);
+const raceSpot = (await alice.api.listSpots({ page: 1, pageSize: 50, date: raceDate, available: true })).items[0];
+const winners = [];
 const outcomes = await Promise.all(
-  racers.map(({ api }) => api.reserve(raceSpot.id, raceDate).then(() => 'won', (error) => (error.isConflict ? 'conflict' : `error:${error.status}`))),
+  racers.map(({ api }) => api.reserve(raceSpot.id, raceDate).then((result) => { winners.push({ api, id: result.reservation.id }); return 'won'; }, (error) => (error.isConflict ? 'conflict' : `error:${error.status}`))),
 );
 check(
   `${PARALLEL_USERS} users at once: exactly one wins and the rest get 409`,
   outcomes.filter((outcome) => outcome === 'won').length === 1 && outcomes.filter((outcome) => outcome === 'conflict').length === PARALLEL_USERS - 1,
   outcomes.join(','),
 );
+
+// ניקוי: מבטלים את ההזמנה של המנצח, כדי שהרצות חוזרות יתחילו ממצב נקי
+await Promise.all(winners.map(({ api, id }) => api.cancelReservation(id)));
 
 // 8. CORS: הדפדפן רשאי לקרוא ל-API מהכתובת של הלקוח, ולא מכתובת אחרת
 const allowed = await preflight(clientOrigin);
