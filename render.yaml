@@ -1,0 +1,16 @@
+# Render Blueprint ללקוח: אתר סטטי (Static Site) שנבנה מ-React.
+# יצירה: ב-Render לוחצים New > Blueprint ובוחרים את ה-repository הזה.
+# VITE_API_URL אינו סוד: זו כתובת השרת, והיא נכנסת לקוד שרץ בדפדפן. מזינים אותה בזמן היצירה.
+
+services:
+  - type: web
+    name: parking-system-client
+    runtime: static
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # הכתובת של שירות השרת ב-Render, למשל https://parking-system-api.onrender.com (בלי / בסוף)
+      - key: VITE_API_URL
+        sync: false

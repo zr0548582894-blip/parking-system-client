@@ -1,0 +1,15 @@
+# תלויות ותוצרי בנייה
+node_modules/
+dist/
+
+# קובצי סביבה מקומיים (לא נשמרים ב-Git). הדוגמה נמצאת ב-.env.example
+.env
+.env.*
+!.env.example
+
+# לוגים וקבצי עורך
+*.log
+npm-debug.log*
+.vscode/
+.idea/
+.DS_Store
