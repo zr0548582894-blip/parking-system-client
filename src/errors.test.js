@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ApiError } from './api.js';
-import { conflictMessage, describeError } from './errors.js';
+import { conflictMessage, describeError, explainError } from './errors.js';
 
 describe('describeError', () => {
   it('lists the field errors of a validation failure', () => {
@@ -25,5 +25,21 @@ describe('conflictMessage', () => {
 
     expect(message).toContain('ההזמנה לא נקלטה');
     expect(message).toContain('המקום כבר תפוס בתאריך זה.');
+  });
+});
+
+describe('explainError', () => {
+  it('turns each status into a tone and a next step', () => {
+    expect(explainError(new ApiError(409, 'x')).tone).toBe('conflict');
+    expect(explainError(new ApiError(403, 'x')).tone).toBe('warning');
+    expect(explainError(new ApiError(0, 'x')).hint).toContain('השרת');
+    expect(explainError(new ApiError(429, 'x', { retryAfter: 30 })).hint).toContain('30');
+    expect(explainError(new ApiError(500, 'x')).tone).toBe('error');
+  });
+
+  it('keeps validation details and the correlation id, nothing else', () => {
+    const explained = explainError(new ApiError(400, 'bad', { errors: { Code: ['too long'] }, correlationId: 'abc' }));
+    expect(explained.details).toEqual(['too long']);
+    expect(explained.correlationId).toBe('abc');
   });
 });

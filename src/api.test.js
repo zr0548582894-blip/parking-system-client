@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ApiError, buildQuery, createApi } from './api.js';
+import { ApiError, buildQuery, createApi, isAbort } from './api.js';
 
 // תגובת fetch מדומה, כמו שהשרת עונה
 function reply(status, body, headers = {}) {
@@ -137,5 +137,103 @@ describe('errors', () => {
 
     expect(error.status).toBe(502);
     expect(error.message).toContain('502');
+  });
+});
+
+describe('admin and reservation routes', () => {
+  it('manages parking spots with the right methods, paths and bodies', async () => {
+    const { api, fetchImpl } = setup(reply(200, { id: 1 }), 'admin-token');
+
+    await api.createSpot({ code: 'G-06', floor: 0, featureIds: [1] });
+    await api.updateSpot(4, { code: 'G-06', floor: 0, featureIds: [], isActive: false });
+    await api.deleteSpot(4);
+
+    const [create, update, remove] = fetchImpl.mock.calls;
+    expect(create[0]).toBe('https://api.example.com/api/parking-spots');
+    expect(create[1].method).toBe('POST');
+    expect(update[0]).toBe('https://api.example.com/api/parking-spots/4');
+    expect(update[1].method).toBe('PUT');
+    expect(JSON.parse(update[1].body).isActive).toBe(false);
+    expect(remove[1].method).toBe('DELETE');
+  });
+
+  it('sends every server-side filter of the spots list', async () => {
+    const { api, fetchImpl } = setup(reply(200, { items: [] }), 't');
+
+    await api.listSpots({ page: 2, pageSize: 8, floor: -1, isActive: false, featureId: 3, search: 'G-', sortBy: 'Floor', sortDir: 'Desc' });
+
+    const url = fetchImpl.mock.calls[0][0];
+    for (const part of ['floor=-1', 'isActive=false', 'featureId=3', 'search=G-', 'sortBy=Floor', 'sortDir=Desc']) {
+      expect(url).toContain(part);
+    }
+  });
+
+  it('listAllSpots walks every page of 100', async () => {
+    const pages = [
+      reply(200, { items: [{ id: 1 }], totalPages: 2, totalCount: 2 }),
+      reply(200, { items: [{ id: 2 }], totalPages: 2, totalCount: 2 }),
+    ];
+    const fetchImpl = vi.fn().mockImplementation(async () => pages.shift());
+    const api = createApi({ baseUrl: 'https://api.example.com', getToken: () => 't', fetchImpl });
+
+    const { items } = await api.listAllSpots({ date: '2030-01-01' });
+
+    expect(items.map((item) => item.id)).toEqual([1, 2]);
+    expect(fetchImpl.mock.calls[1][0]).toContain('page=2&pageSize=100');
+  });
+
+  it('reads reservations: mine, all (admin) and one by id', async () => {
+    const { api, fetchImpl } = setup(reply(200, { items: [] }), 't');
+
+    await api.myReservations({ page: 1, pageSize: 100 });
+    await api.allReservations({ page: 2, pageSize: 10 });
+    await api.getReservation(9);
+
+    expect(fetchImpl.mock.calls.map((call) => call[0])).toEqual([
+      'https://api.example.com/api/reservations/mine?page=1&pageSize=100',
+      'https://api.example.com/api/reservations?page=2&pageSize=10',
+      'https://api.example.com/api/reservations/9',
+    ]);
+  });
+
+  it('exposes 403 and 429 (with Retry-After) as typed errors', async () => {
+    const forbidden = await setup(reply(403, { title: 'אסור' }), 't').api.reserve(1, '2030-01-01').catch((e) => e);
+    expect(forbidden.isForbidden).toBe(true);
+
+    const limited = await setup(reply(429, { title: 'יותר מדי' }, { 'Retry-After': '42' })).api.login('a@b.co', 'x').catch((e) => e);
+    expect(limited.isRateLimited).toBe(true);
+    expect(limited.retryAfter).toBe(42);
+  });
+
+  it('does not wrap an aborted request as a network error', async () => {
+    const abort = Object.assign(new Error('aborted'), { name: 'AbortError' });
+    const api = createApi({ baseUrl: 'https://api.example.com', fetchImpl: vi.fn().mockRejectedValue(abort) });
+
+    const error = await api.listSpots({}, { signal: new AbortController().signal }).catch((e) => e);
+
+    expect(isAbort(error)).toBe(true);
+  });
+});
+
+describe('activity log and health', () => {
+  it('reports method, path (without the query) and status, never the token or body', async () => {
+    const seen = [];
+    const fetchImpl = vi.fn().mockResolvedValue(reply(200, { items: [] }));
+    const api = createApi({ baseUrl: 'https://api.example.com', getToken: () => 'secret-token', fetchImpl, onActivity: (e) => seen.push(e) });
+
+    await api.listSpots({ search: 'private' });
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ method: 'GET', path: '/api/parking-spots', status: 200 });
+    expect(JSON.stringify(seen[0])).not.toContain('secret-token');
+    expect(JSON.stringify(seen[0])).not.toContain('private');
+  });
+
+  it('health never throws', async () => {
+    const down = createApi({ baseUrl: 'https://api.example.com', fetchImpl: vi.fn().mockRejectedValue(new TypeError('x')) });
+    const up = createApi({ baseUrl: 'https://api.example.com', fetchImpl: vi.fn().mockResolvedValue({ ok: true, status: 200 }) });
+
+    expect(await down.health()).toEqual({ ok: false, status: 0 });
+    expect(await up.health()).toEqual({ ok: true, status: 200 });
   });
 });
