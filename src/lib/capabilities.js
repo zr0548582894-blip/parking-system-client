@@ -74,7 +74,7 @@ export const CAPABILITIES = [
     verify: 'לבטל הזמנה ולראות את המקום חוזר להיות פנוי.', unitTested: true,
   },
   {
-    id: 'health', method: 'GET', path: '/healthz', auth: 'ללא', screen: 'מסך "השרת" > בדיקת חיבור',
+    id: 'health', method: 'GET', path: '/healthz', auth: 'ללא', screen: 'בדיקת חיבור',
     success: '200 כשהשרת חי.', failures: 'שגיאת רשת או 5xx', verify: 'ללחוץ "בדיקת חיבור".', unitTested: true,
   },
 ];

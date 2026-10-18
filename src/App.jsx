@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { CalendarCheck, ClipboardList, LogOut, Map as MapIcon, Server, Warehouse } from 'lucide-react';
+import { CalendarCheck, ClipboardList, LogOut, Map as MapIcon, Warehouse } from 'lucide-react';
 import { api } from './apiClient.js';
 import { clearSession, loadSession, saveSession } from './session.js';
 import { useRoute } from './lib/router.js';
@@ -10,7 +10,6 @@ import GarageScreen from './garage/GarageScreen.jsx';
 import MyReservationsScreen from './screens/MyReservationsScreen.jsx';
 import AdminSpotsScreen from './screens/AdminSpotsScreen.jsx';
 import AdminReservationsScreen from './screens/AdminReservationsScreen.jsx';
-import BackendScreen from './screens/BackendScreen.jsx';
 
 const roleLabel = { Admin: 'מנהל', Employee: 'עובד' };
 
@@ -20,7 +19,6 @@ const NAV = [
   { path: '/reservations', label: 'ההזמנות שלי', icon: CalendarCheck, roles: ['Employee'] },
   { path: '/admin/spots', label: 'ניהול מקומות', icon: Warehouse, roles: ['Admin'] },
   { path: '/admin/reservations', label: 'כל ההזמנות', icon: ClipboardList, roles: ['Admin'] },
-  { path: '/backend', label: 'השרת', icon: Server, roles: ['Admin'] },
 ];
 
 export default function App() {
@@ -70,8 +68,7 @@ export default function App() {
   } else if (current.path === '/') screen = <GarageScreen {...screenProps} />;
   else if (current.path === '/reservations') screen = <MyReservationsScreen {...screenProps} />;
   else if (current.path === '/admin/spots') screen = <AdminSpotsScreen {...screenProps} />;
-  else if (current.path === '/admin/reservations') screen = <AdminReservationsScreen {...screenProps} />;
-  else screen = <BackendScreen {...screenProps} />;
+  else screen = <AdminReservationsScreen {...screenProps} />;
 
   return (
     <ToastProvider>

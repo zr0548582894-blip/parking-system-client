@@ -54,7 +54,7 @@ function parseJson(text) {
 
 // getToken נקרא בכל בקשה, ולכן ה-token תמיד העדכני. fetchImpl מאפשר לבדוק בלי רשת.
 // onActivity (לא חובה) מקבל { method, path, status, ms, at } על כל בקשה: בלי גוף, בלי query, בלי token ובלי סיסמאות.
-// המסך "השרת" משתמש בזה כדי להראות אילו קריאות באמת נשלחו
+// יומן הקריאות שנשלחו בפועל (בלי token ובלי גוף)
 export function createApi({
   baseUrl,
   getToken = () => null,
