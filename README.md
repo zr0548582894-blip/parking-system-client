@@ -31,8 +31,16 @@ npm run dev          # http://localhost:5173
 כתובת השרת נקבעת ב-`VITE_API_URL`. ללא הגדרה זו `http://localhost:5258` (השרת המקומי). להגדרה אחרת, העתיקו `.env.example` ל-`.env`.
 השרת מתיר לקרוא לו מ-`http://localhost:5173` (הגדרת `Cors:AllowedOrigins` ב-`appsettings.Development.json` של השרת).
 
-**משתמשי דמו** (נוצרים בשרת כשמגדירים להם סיסמה, ראו README של השרת): `employee@parking.local` (עובד) ו-`admin@parking.local` (מנהל, אינו מזמין).
-אפשר גם להירשם כעובד חדש במסך ההתחברות.
+## גרסה חיה ומשתמשי דמו
+- **לקוח:** https://parking-system-client-ijof.onrender.com
+- **שרת:** https://parking-system-api-j020.onrender.com (בהפעלה ראשונה אחרי חוסר פעילות ההמתנה היא כדקה)
+
+| תפקיד | אימייל | סיסמה |
+|---|---|---|
+| **Admin** (מנהל, אינו מזמין) | `admin@parking.local` | `Admin-Demo-2026!` |
+| **Employee** (עובד) | `employee@parking.local` | `Employee-Demo-2026!` |
+
+אפשר גם להירשם כעובד חדש במסך ההתחברות. בהרצה מקומית מול שרת מקומי המשתמשים האלה קיימים רק אם הסיסמאות הוגדרו בשרת לפני העלייה הראשונה (ראו README של השרת).
 
 ## בדיקות
 ```bash
@@ -47,7 +55,7 @@ npm run e2e          # זרימה מלאה מול שרת חי (הרשמה, pagin
 ## העלאה ל-Render (Static Site)
 > הלקוח נפרס **אחרי** השרת, כי הוא צריך את כתובת השרת.
 
-1. העלו את התיקייה הזו ל-repository נפרד ב-GitHub (ראו הוראות הגשה בסוף ה-README של השרת).
+1. העלו את התיקייה הזו ל-repository נפרד ב-GitHub.
 2. ב-Render: **New > Blueprint** ובחרו את ה-repository. הקובץ `render.yaml` מגדיר אתר סטטי (`npm ci && npm run build`, תיקיית פרסום `dist`).
 3. כשתתבקשו, הזינו `VITE_API_URL` = הכתובת של שירות השרת ב-Render, בלי `/` בסוף.
 4. אחרי שהלקוח עלה, העתיקו את כתובתו (`https://<שם>.onrender.com`) לשרת: **Environment > `Cors__AllowedOrigins`**, ושמרו (השרת יופעל מחדש). בלי זה הדפדפן יחסום את הקריאות לשרת (CORS).
